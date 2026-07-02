@@ -63,10 +63,16 @@ func validate(cfg *Config) error {
 // It can be overridden for testing purposes.
 var RedisClientFunc = func(cfg *Config) RedisClient {
 	return redis.NewClient(&redis.Options{
-		Addr:     cfg.Addr,
-		Password: os.Getenv("REDIS_PASSWORD"),
-		Username: os.Getenv("REDIS_USERNAME"),
-		DB:       0,
+		Addr:            cfg.Addr,
+		Password:        os.Getenv("REDIS_PASSWORD"),
+		Username:        os.Getenv("REDIS_USERNAME"),
+		DB:              0,
+		MaxRetries:      10,
+		MinRetryBackoff: 100 * time.Millisecond,
+		MaxRetryBackoff: 5 * time.Second,
+		DialTimeout:     5 * time.Second,
+		ReadTimeout:     3 * time.Second,
+		WriteTimeout:    3 * time.Second,
 	})
 }
 
