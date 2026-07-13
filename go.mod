@@ -24,6 +24,7 @@ replace go.opentelemetry.io/auto/sdk => go.opentelemetry.io/auto/sdk v1.1.0 // i
 
 require (
 	github.com/ONDC-Official/ondc-crypto-sdk-go v0.2.1
+	github.com/andybalholm/brotli v1.2.2
 	github.com/beckn-one/beckn-onix v1.3.0
 	github.com/extedcouD/HttpRequestRemapper v0.0.2
 	github.com/redis/go-redis/extra/redisotel/v9 v9.17.2
