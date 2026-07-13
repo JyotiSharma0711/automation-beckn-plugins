@@ -3,6 +3,9 @@ package networkobservability
 import (
 	"bufio"
 	"bytes"
+	"compress/flate"
+	"compress/gzip"
+	"compress/zlib"
 	"context"
 	"crypto/rand"
 	"crypto/tls"
@@ -19,6 +22,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/andybalholm/brotli"
 	"github.com/beckn-one/beckn-onix/pkg/log"
 	httprequestremap "github.com/extedcouD/HttpRequestRemapper"
 	"google.golang.org/grpc"
@@ -162,10 +166,21 @@ func newMiddlewareFromConfig(ctx context.Context, parsed Config) (func(http.Hand
 			next.ServeHTTP(crw, r)
 			durationMs := time.Since(start).Milliseconds()
 
-			resBodyBytes, _ := crw.bodyBytes()
+			resBodyBytes, resTruncated := crw.bodyBytes()
+
+			// A proxying module (actAsProxy) streams the upstream NP's response through
+			// this writer verbatim, Content-Encoding and all: ReverseProxy forwards the
+			// caller's Accept-Encoding, which switches off the transport's transparent
+			// decompression. Decode before parsing, or a compressed reply is recorded as {}.
+			reqBodyBytes = decodeBody(r.Context(), reqBodyBytes, r.Header.Get("Content-Encoding"), false)
+			resBodyBytes = decodeBody(r.Context(), resBodyBytes, crw.Header().Get("Content-Encoding"), resTruncated)
 
 			requestBody := parseJSONObjectOrEmpty(reqBodyBytes)
 			responseBody := parseJSONObjectOrEmpty(resBodyBytes)
+			if len(resBodyBytes) > 0 && len(responseBody) == 0 {
+				log.Warnf(r.Context(), "network-observability: response body (%d bytes, content-encoding=%q) is not a JSON object; recording it as empty",
+					len(resBodyBytes), crw.Header().Get("Content-Encoding"))
+			}
 			headersFirst, headersAll := headerMaps(r.Header)
 			cookies := cookieMap(r)
 			sid := ""
@@ -395,6 +410,63 @@ func (w *captureResponseWriter) Push(target string, opts *http.PushOptions) erro
 
 func parseJSONObjectOrEmpty(b []byte) map[string]any {
 	return httprequestremap.ParseJSONObjectOrEmpty(b)
+}
+
+// decodeBody decompresses b according to its Content-Encoding so the audit event
+// carries the plaintext payload. Anything it cannot decode is returned unchanged —
+// auditing must never alter what the client actually sent or received.
+// truncated marks a body already cut short by MaxBodyBytes: the compressed stream is
+// then incomplete, so a partial decode is the best that can be done.
+func decodeBody(ctx context.Context, b []byte, contentEncoding string, truncated bool) []byte {
+	if len(b) == 0 {
+		return b
+	}
+	// Content-Encoding may list several codings; the last applied is the outermost.
+	codings := strings.Split(strings.ToLower(contentEncoding), ",")
+	encoding := strings.TrimSpace(codings[len(codings)-1])
+
+	var (
+		out []byte
+		err error
+	)
+	switch encoding {
+	case "", "identity":
+		return b
+	case "gzip", "x-gzip":
+		out, err = readAllFrom(func() (io.ReadCloser, error) { return gzip.NewReader(bytes.NewReader(b)) })
+	case "br":
+		out, err = readAllFrom(func() (io.ReadCloser, error) {
+			return io.NopCloser(brotli.NewReader(bytes.NewReader(b))), nil
+		})
+	case "deflate":
+		// "deflate" is zlib-wrapped per RFC 7230; some servers send raw deflate instead.
+		out, err = readAllFrom(func() (io.ReadCloser, error) { return zlib.NewReader(bytes.NewReader(b)) })
+		if err != nil {
+			out, err = readAllFrom(func() (io.ReadCloser, error) {
+				return flate.NewReader(bytes.NewReader(b)), nil
+			})
+		}
+	default:
+		log.Warnf(ctx, "network-observability: unsupported Content-Encoding %q; recording body as-is", encoding)
+		return b
+	}
+
+	// A truncated stream always errors out, but whatever decoded before the cut is still
+	// worth recording; only fall back to the raw bytes when nothing came out.
+	if err != nil && !(truncated && len(out) > 0) {
+		log.Warnf(ctx, "network-observability: failed to decode %s body: %v; recording body as-is", encoding, err)
+		return b
+	}
+	return out
+}
+
+func readAllFrom(open func() (io.ReadCloser, error)) ([]byte, error) {
+	r, err := open()
+	if err != nil {
+		return nil, err
+	}
+	defer r.Close()
+	return io.ReadAll(r)
 }
 
 type auditDispatcher struct {

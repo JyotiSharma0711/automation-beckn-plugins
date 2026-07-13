@@ -4,6 +4,8 @@ github.com/ONDC-Official/automation-beckn-onix v1.5.0 h1:wpZzRwFzOxfEAmqh/UiBkwz
 github.com/ONDC-Official/automation-beckn-onix v1.5.0/go.mod h1:g/FMlWEfVVx26SZVGiRNBGSVVx6d6GvWRiqB63SK1hQ=
 github.com/ONDC-Official/ondc-crypto-sdk-go v0.2.1 h1:lDLwCmyy5dqzhsPq6XWG2JOonucSkwtQweHEaM/9rZg=
 github.com/ONDC-Official/ondc-crypto-sdk-go v0.2.1/go.mod h1:hll7FvOoMruRuxcqa/eXp53O0TRCMKWC2hzL68CT5QQ=
+github.com/andybalholm/brotli v1.2.2 h1:HzTuoo2ErYQqf5qvcJInB8uvqSVxRttzkFexPWtnceM=
+github.com/andybalholm/brotli v1.2.2/go.mod h1:rzTDkvFWvIrjDXZHkuS16NPggd91W3kUSvPlQ1pLaKY=
 github.com/beorn7/perks v1.0.1 h1:VlbKKnNfV8bJzeqoa4cOKqO6bYr3WgKZxO8Z16+hsOM=
 github.com/beorn7/perks v1.0.1/go.mod h1:G2ZrVWU2WbWT9wwq4/hrbKbnv/1ERSJQ0ibhJ6rlkpw=
 github.com/bsm/ginkgo/v2 v2.12.0 h1:Ny8MWAHyOepLGlLKYmXG4IEkioBysk6GpaRTLC8zwWs=
