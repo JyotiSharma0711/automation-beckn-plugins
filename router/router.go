@@ -61,6 +61,14 @@ const (
 	targetTypeBAP       = "bap"       // Route to a BAP endpoint
 )
 
+// careEndpoints are the IGM endpoints routed to CARE_URL when use_care is enabled.
+var careEndpoints = map[string]bool{
+	"issue":           true,
+	"on_issue":        true,
+	"issue_status":    true,
+	"on_issue_status": true,
+}
+
 // New initializes a new Router instance with the provided configuration.
 // It loads and validates the routing rules from the specified YAML file.
 // Returns an error if the configuration is invalid or the rules cannot be loaded.
@@ -316,9 +324,10 @@ func (r *Router) Route(ctx context.Context, url *url.URL, body []byte, request *
 			endpoint, requestBody.Context.Domain, version)
 	}
 
-	// useCare override: route to CARE_URL only for issue and on_issue endpoints
-	// when the session has use_care enabled AND the matched route acts as a proxy.
-	if request != nil && route.ActAsProxy && (endpoint == "issue" || endpoint == "on_issue") {
+	// useCare override: route to CARE_URL only for IGM endpoints (issue, on_issue,
+	// issue_status, on_issue_status) when the session has use_care enabled AND the
+	// matched route acts as a proxy.
+	if request != nil && route.ActAsProxy && careEndpoints[endpoint] {
 		if c, err := request.Cookie("use_care"); err == nil && c.Value == "true" {
 			if r.careURL == nil {
 				return nil, fmt.Errorf("use_care enabled but CARE_URL not configured")
