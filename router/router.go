@@ -346,23 +346,33 @@ func (r *Router) Route(ctx context.Context, url *url.URL, body []byte, request *
 	// when the session has use_gateway enabled AND the matched route acts as a proxy.
 	// Checked before use_tunnel_for_fis so the search-specific rule wins over the
 	// catch-all tunnel override.
-	// If bpp_uri is present in the request context, the BPP is already known 
-	// send directly to the NP and skip the gateway.
+	// If bpp_uri is present in the request context, route directly to the NP
+	// instead of the gateway.
 	if request != nil && route.ActAsProxy && endpoint == "search" {
 		if c, err := request.Cookie("use_gateway"); err == nil && c.Value == "true" {
-			if strings.TrimSpace(requestBody.Context.BPPURI) != "" {
-				return handleProtocolMapping(route, requestBody.Context.BPPURI, endpoint)
+			if bppURI := strings.TrimSpace(requestBody.Context.BPPURI); bppURI != "" {
+				targetURL, err := url.Parse(bppURI)
+				if err != nil {
+					return nil, fmt.Errorf("invalid bpp_uri %q: %w", bppURI, err)
+				}
+				targetURL.Path = joinPath(targetURL, endpoint)
+				return &model.Route{
+					TargetType: targetTypeURL,
+					URL:        targetURL,
+					ActAsProxy: true,
+				}, nil
+			} else {
+				if r.gatewayURL == nil {
+					return nil, fmt.Errorf("use_gateway enabled but GATEWAY_URL not configured")
+				}
+				target := *r.gatewayURL
+				target.Path = joinPath(&target, endpoint)
+				return &model.Route{
+					TargetType: targetTypeURL,
+					URL:        &target,
+					ActAsProxy: true,
+				}, nil
 			}
-			if r.gatewayURL == nil {
-				return nil, fmt.Errorf("use_gateway enabled but GATEWAY_URL not configured")
-			}
-			target := *r.gatewayURL
-			target.Path = joinPath(&target, endpoint)
-			return &model.Route{
-				TargetType: targetTypeURL,
-				URL:        &target,
-				ActAsProxy: true,
-			}, nil
 		}
 	}
 
