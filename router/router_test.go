@@ -869,3 +869,96 @@ func TestHttpRequestPaths(t *testing.T) {
 		t.Fatalf("restored body: %q", string(b))
 	}
 }
+
+func TestFISTunnelRouting(t *testing.T) {
+	ctx := context.Background()
+
+	const (
+		tunnelURL = "https://fis-tunnel.example.com"
+		bppURI    = "https://np.example.com"
+		domain    = "ONDC:FIS12"
+		version   = "2.0.0"
+	)
+
+	makeRequest := func(body string, cookies ...*http.Cookie) *http.Request {
+		req := httptest.NewRequest(http.MethodPost, "https://gateway.example.com/confirm", strings.NewReader(body))
+		for _, c := range cookies {
+			req.AddCookie(c)
+		}
+		return req
+	}
+
+	tunnelCookie := &http.Cookie{Name: "use_tunnel_for_fis", Value: "true"}
+
+	tests := []struct {
+		name        string
+		setupTunnel bool
+		body        string
+		request     *http.Request
+		wantURL     string
+		wantErr     string
+	}{
+		{
+			name:        "bpp_uri present — routes directly to NP, skips tunnel",
+			setupTunnel: true,
+			body:        `{"context": {"domain": "` + domain + `", "version": "` + version + `", "bpp_uri": "` + bppURI + `"}}`,
+			request:     makeRequest(`{"context": {"domain": "`+domain+`", "version": "`+version+`", "bpp_uri": "`+bppURI+`"}}`, tunnelCookie),
+			wantURL:     bppURI + "/confirm",
+		},
+		{
+			name:        "bpp_uri absent — routes through FIS tunnel",
+			setupTunnel: true,
+			body:        `{"context": {"domain": "` + domain + `", "version": "` + version + `"}}`,
+			request:     makeRequest(`{"context": {"domain": "`+domain+`", "version": "`+version+`"}}`, tunnelCookie),
+			wantURL:     tunnelURL + "/confirm",
+		},
+		{
+			name:        "tunnel cookie absent — normal bpp routing, no bpp_uri means error",
+			setupTunnel: true,
+			body:        `{"context": {"domain": "` + domain + `", "version": "` + version + `"}}`,
+			request:     makeRequest(`{"context": {"domain": "` + domain + `", "version": "` + version + `"}}`), // no cookie
+			wantErr:     "could not determine destination for endpoint 'confirm'",
+		},
+		{
+			name:        "tunnel cookie set but FIS_TUNNEL_URL not configured and no bpp_uri — error",
+			setupTunnel: false,
+			body:        `{"context": {"domain": "` + domain + `", "version": "` + version + `"}}`,
+			request:     makeRequest(`{"context": {"domain": "`+domain+`", "version": "`+version+`"}}`, tunnelCookie),
+			wantErr:     "use_tunnel_for_fis enabled but FIS_TUNNEL_URL not configured",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.setupTunnel {
+				t.Setenv("FIS_TUNNEL_URL", tunnelURL)
+			} else {
+				t.Setenv("FIS_TUNNEL_URL", "")
+			}
+
+			router, _, rulesFilePath := setupRouter(t, "bap_caller.yaml")
+			defer os.RemoveAll(filepath.Dir(rulesFilePath))
+
+			parsedURL, _ := url.Parse("https://gateway.example.com/confirm")
+			route, err := router.Route(ctx, parsedURL, []byte(tt.body), tt.request)
+
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Errorf("Route() error = %v, want error containing %q", err, tt.wantErr)
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("Route() unexpected error: %v", err)
+			}
+			if route == nil || route.URL == nil {
+				t.Fatalf("Route() returned nil route or nil URL")
+			}
+			if gotURL := route.URL.String(); !strings.HasPrefix(gotURL, tt.wantURL) {
+				t.Errorf("Route() URL = %q, want prefix %q", gotURL, tt.wantURL)
+			}
+		})
+	}
+}
+
