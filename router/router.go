@@ -346,8 +346,13 @@ func (r *Router) Route(ctx context.Context, url *url.URL, body []byte, request *
 	// when the session has use_gateway enabled AND the matched route acts as a proxy.
 	// Checked before use_tunnel_for_fis so the search-specific rule wins over the
 	// catch-all tunnel override.
+	// If bpp_uri is present in the request context, the BPP is already known 
+	// send directly to the NP and skip the gateway.
 	if request != nil && route.ActAsProxy && endpoint == "search" {
 		if c, err := request.Cookie("use_gateway"); err == nil && c.Value == "true" {
+			if strings.TrimSpace(requestBody.Context.BPPURI) != "" {
+				return handleProtocolMapping(route, requestBody.Context.BPPURI, endpoint)
+			}
 			if r.gatewayURL == nil {
 				return nil, fmt.Errorf("use_gateway enabled but GATEWAY_URL not configured")
 			}
